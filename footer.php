@@ -1,10 +1,29 @@
-<footer><p>Hak Cipta &copy; <?php echo date('Y'); ?></p></footer>
+<footer class="site-footer">
+    <div class="container">
+        <p class="copyright">Hak Cipta &copy; <?php echo date('Y'); ?> <?php bloginfo('name'); ?></p>
+        
+        <?php if (has_nav_menu('footer')) : ?>
+            <nav class="footer-navigation">
+                <?php
+                wp_nav_menu(array(
+                    'theme_location' => 'footer',
+                    'menu_class' => 'footer-menu',
+                    'container' => false,
+                ));
+                ?>
+            </nav>
+        <?php endif; ?>
+    </div>
+</footer>
+
 <?php wp_footer(); ?>
-</body>
-</html>
+
 <script>
+// PERBAIKAN: Gunakan variabel ajaxurl yang didefinisikan di header atau lokalisasi script
 function loadChapterPages(chapterID) {
-    fetch(ajaxurl, {
+    const ajax_url = typeof ajaxurl !== 'undefined' ? ajaxurl : mymanga_ajax.ajaxurl;
+    
+    fetch(ajax_url, {
         method: 'POST',
         headers: {'Content-Type': 'application/x-www-form-urlencoded'},
         body: 'action=load_chapter_pages&chapter_id=' + chapterID
@@ -13,23 +32,26 @@ function loadChapterPages(chapterID) {
     .then(data => {
         if (data.success) {
             const reader = document.getElementById('reader-pages');
-            reader.innerHTML = '';
-            data.data.forEach(url => {
-                const img = document.createElement('img');
-                img.src = url;
-                img.loading = 'lazy';
-                img.style.width = '100%';
-                img.style.marginBottom = '20px';
-                reader.appendChild(img);
-            });
+            if (reader) {
+                reader.innerHTML = '';
+                data.data.forEach(url => {
+                    const img = document.createElement('img');
+                    img.src = url;
+                    img.loading = 'lazy';
+                    img.style.width = '100%';
+                    img.style.marginBottom = '20px';
+                    reader.appendChild(img);
+                });
+            }
         }
-    });
+    })
+    .catch(error => console.error('Error loading chapter pages:', error));
 }
-</script>
 
-<script>
 document.addEventListener("DOMContentLoaded", function() {
     const reader = document.getElementById("reader-pages");
+    if (!reader) return;
+    
     let currentIndex = 0;
     let pages = [];
     let chapterID = parseInt(reader.dataset.chapterId);
@@ -39,8 +61,10 @@ document.addEventListener("DOMContentLoaded", function() {
         if (loading) return;
         loading = true;
 
+        const ajax_url = typeof ajaxurl !== 'undefined' ? ajaxurl : mymanga_ajax.ajaxurl;
+
         if (pages.length === 0) {
-            fetch(ajaxurl, {
+            fetch(ajax_url, {
                 method: "POST",
                 headers: {"Content-Type": "application/x-www-form-urlencoded"},
                 body: "action=load_chapter_pages&chapter_id=" + chapterID
@@ -51,6 +75,10 @@ document.addEventListener("DOMContentLoaded", function() {
                     pages = data.data;
                     appendPages();
                 }
+            })
+            .catch(error => {
+                console.error("Error loading pages:", error);
+                loading = false;
             });
         } else {
             appendPages();
@@ -84,3 +112,5 @@ document.addEventListener("DOMContentLoaded", function() {
     loadMorePages(); // initial load
 });
 </script>
+</body>
+</html>
