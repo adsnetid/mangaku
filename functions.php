@@ -30,24 +30,122 @@ add_action('init', 'mymanga_register_taxonomies');
 
 // PERBAIKAN: Gunakan caching bawaan WordPress atau load phpfastcache secara kondisional
 function mymanga_get_cache_instance() {
-    // Cek apakah phpfastcache tersedia
-    if (file_exists(ABSPATH . 'wp-content/plugins/phpfastcache/vendor/autoload.php')) {
-        require_once ABSPATH . 'wp-content/plugins/phpfastcache/vendor/autoload.php';
-        use Phpfastcache\Helper\Psr16Adapter;
-        static $cache = null;
-        if ($cache === null) $cache = new Psr16Adapter('Files');
-        return $cache;
+    // Create a proper fallback cache implementation that mimics PSR-16 SimpleCache interface
+    static $fallback_cache = null;
+    
+    // Return existing fallback cache if already created
+    if ($fallback_cache !== null) {
+        return $fallback_cache;
     }
-    // Gunakan array sederhana sebagai fallback
-    static $fallback_cache = [];
-    return new class($fallback_cache) {
+    
+    // Check if phpfastcache is available
+    $phpfastcache_path = ABSPATH . 'wp-content/plugins/phpfastcache/vendor/autoload.php';
+    if (file_exists($phpfastcache_path)) {
+        // Only require the file if it exists
+        require_once $phpfastcache_path;
+        
+        // Only try to use the class if it exists
+        if (class_exists('Phpfastcache\Helper\Psr16Adapter')) {
+            try {
+                // Create cache instance with error handling
+                $cache = new \Phpfastcache\Helper\Psr16Adapter('Files');
+                return $cache;
+            } catch (Exception $e) {
+                // Log error if desired
+                if (WP_DEBUG) {
+                    error_log('PhpFastCache initialization failed: ' . $e->getMessage());
+                }
+                // Continue to fallback implementation
+            }
+        }
+    }
+    
+    // Create fallback cache implementation
+    $cache_data = [];
+    $fallback_cache = new class($cache_data) {
         private $cache;
-        public function __construct(&$cache) { $this->cache = &$cache; }
-        public function get($key, $default = null) { return isset($this->cache[$key]) ? $this->cache[$key] : $default; }
-        public function set($key, $value, $ttl = null) { $this->cache[$key] = $value; return true; }
-        public function delete($key) { unset($this->cache[$key]); return true; }
-        public function clear() { $this->cache = []; return true; }
+        private $ttl_data = [];
+        
+        public function __construct(&$cache_storage) {
+            $this->cache = &$cache_storage;
+        }
+        
+        public function get($key, $default = null) {
+            // Check if key exists and hasn't expired
+            if (isset($this->cache[$key])) {
+                // Check for TTL expiration
+                if (isset($this->ttl_data[$key]) && $this->ttl_data[$key] < time()) {
+                    $this->delete($key);
+                    return $default;
+                }
+                return $this->cache[$key];
+            }
+            return $default;
+        }
+        
+        public function set($key, $value, $ttl = null) {
+            $this->cache[$key] = $value;
+            
+            // Set expiration time if TTL is provided
+            if ($ttl !== null) {
+                // If TTL is an integer, it's in seconds
+                $expire_time = is_int($ttl) ? time() + $ttl : 0;
+                $this->ttl_data[$key] = $expire_time;
+            }
+            
+            return true;
+        }
+        
+        public function delete($key) {
+            unset($this->cache[$key]);
+            unset($this->ttl_data[$key]);
+            return true;
+        }
+        
+        public function clear() {
+            $this->cache = [];
+            $this->ttl_data = [];
+            return true;
+        }
+        
+        public function getMultiple($keys, $default = null) {
+            $result = [];
+            foreach ($keys as $key) {
+                $result[$key] = $this->get($key, $default);
+            }
+            return $result;
+        }
+        
+        public function setMultiple($values, $ttl = null) {
+            foreach ($values as $key => $value) {
+                $this->set($key, $value, $ttl);
+            }
+            return true;
+        }
+        
+        public function deleteMultiple($keys) {
+            foreach ($keys as $key) {
+                $this->delete($key);
+            }
+            return true;
+        }
+        
+        public function has($key) {
+            if (!isset($this->cache[$key])) {
+                return false;
+            }
+            
+            // Check TTL
+            if (isset($this->ttl_data[$key]) && $this->ttl_data[$key] < time()) {
+                $this->delete($key);
+                return false;
+            }
+            
+            return true;
+        }
     };
+    
+    return $fallback_cache;
 }
 
 function mymanga_lazyload_images($content) {
